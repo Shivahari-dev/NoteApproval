@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes Dashboard</title>
+    <link href="https://unpkg.com/tabulator-tables@5.0.7/dist/css/tabulator_modern.min.css" rel="stylesheet">
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/tabulator-tables@5.0.7/dist/js/tabulator.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.9/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+        #header {
+            background-color: #0075BE;
+            color: white;
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid white;
+        }
+        #tabs {
+            display: flex;
+            justify-content: center;
+            margin-top: 0;
+            background: #0075BE;
+            border-bottom: 2px solid #0075BE;
+        }
+        .tab {
+            cursor: pointer;
+            padding: 10px 20px;
+            flex: 1;
+            text-align: center;
+            color: white;
+            transition: background-color 0.3s, border-color 0.3s;
+            border-right: 1px solid white;
+        }
+        .tab:last-child {
+            border-right: none;
+        }
+        .tab.active {
+            background: #0066cc;
+        }
+        .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 20px 0;
+        }
+        .date-picker {
+            margin: 0 5px;
+            font-size: 14px;
+            width: 120px;
+        }
+        #export, #newNote, #showChart {
+            background-color: #0075BE;
+            color: white;
+            font-size: 12px;
+            margin: 0 5px;
+        }
+        .table-responsive {
+            height: 400px;
+            overflow-y: auto;
+        }
+        #chartTitle {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid">
+    <div id="header">
+        <h2>Notes Dashboard</h2>
+    </div>
+
+    <div id="tabs">
+        <div class="tab active" id="creatorTab">Creator</div>
+        <div class="tab" id="recommendorTab">Recommendor</div>
+        <div class="tab" id="approverTab">Approver</div>
+    </div>
+
+    <div class="table-controls">
+        <div>
+            <label for="pageSize">Records per Page:</label>
+            <select id="pageSize" class="form-control form-control-sm" style="display: inline-block; width: auto;">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="all">All</option>
+            </select>
+        </div>
+        <div>
+            <select id="chartType" class="form-control form-control-sm" style="display: inline-block; width: auto;">
+                <option value="bar">Bar Chart</option>
+                <option value="line">Line Chart</option>
+                <option value="pie">Pie Chart</option>
+            </select>
+            <button id="showChart" class="btn btn-primary btn-sm">Show Chart</button>
+        </div>
+        <div>
+            <button id="export" class="btn btn-secondary btn-sm">Export to Excel</button>
+            <button id="newNote" class="btn btn-success btn-sm">New Note</button>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <div id="table"></div>
+    </div>
+
+    <div id="chartTitle">Notes Count by Status</div>
+    <div class="table-controls" id="datePickers" style="display: none;">
+        <label for="startDate" class="mr-2">Start Date:</label>
+        <input type="date" id="startDate" class="form-control form-control-sm date-picker">
+        <label for="endDate" class="mr-2">End Date:</label>
+        <input type="date" id="endDate" class="form-control form-control-sm date-picker" disabled>
+        <button id="clearFilter" class="btn btn-secondary btn-sm">Clear Filter</button>
+        <button id="closeChart" class="btn btn-danger btn-sm">Close Visualization</button>
+    </div>
+    <div id="chartContainer">
+        <canvas id="chartCanvas" width="400" height="200"></canvas>
+    </div>
+</div>
+
+<script>
+// Sample data for bank notes (50 records)
+const sampleData = Array.from({ length: 50 }, (v, k) => ({
+    Note_ID: k + 1,
+    Subject: `Subject ${k + 1}`,
+    Creator_Name: `Creator ${Math.floor(Math.random() * 10) + 1}`,
+    Recommendor_Name: `Recommendor ${Math.floor(Math.random() * 10) + 1}`,
+    Approver_Name: `Approver ${Math.floor(Math.random() * 10) + 1}`,
+    NoteCreationDate: `2023-0${(k % 12) + 1}-15`,
+    Status: ["Draft", "Reviewed", "Approved", "Archived"][Math.floor(Math.random() * 4)]
+}));
+
+// Initialize Tabulator
+let currentView = 'Creator'; // Default view
+let table;
+
+function initializeTable(view) {
+    const columns = [
+        { title: "Note ID", field: "Note_ID", frozen: true, minWidth: 100, maxWidth: 150 },
+        { title: "Subject", field: "Subject", minWidth: 150 },
+        { title: `${view} Name`, field: `${view}_Name`, minWidth: 150 },
+        { title: "Note Creation Date", field: "NoteCreationDate", minWidth: 150 },
+        { title: "Status", field: "Status", minWidth: 120 },
+    ];
+
+    // If a table already exists, destroy it
+    if (table) {
+        table.destroy();
+    }
+
+    table = new Tabulator("#table", {
+        data: sampleData,
+        layout: "fitColumns",
+        pagination: "local",
+        paginationSize: 10,
+        height: "100%",
+        columns: columns,
+    });
+}
+
+// Initialize with Creator tab
+initializeTable(currentView);
+
+// Tab click event
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+        currentView = this.id.replace('Tab', '');
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        this.classList.add('active');
+        initializeTable(currentView);
+    });
+});
+
+// Export to Excel
+document.getElementById("export").addEventListener("click", function() {
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Bank Notes");
+    XLSX.writeFile(workbook, "bank_notes_data.xlsx");
+});
+
+// Chart creation function
+function createChart(chartType) {
+    const ctx = document.getElementById('chartCanvas').getContext('2d');
+
+    const startDate = new Date(document.getElementById('startDate').value);
+    const endDate = new Date(document.getElementById('endDate').value);
+
+    const filteredData = sampleData.filter(item => {
+        const noteDate = new Date(item.NoteCreationDate);
+        return (!isNaN(startDate) ? noteDate >= startDate : true) &&
+               (!isNaN(endDate) ? noteDate <= endDate : true);
+    });
+
+    const statuses = [...new Set(filteredData.map(item => item.Status))];
+    const counts = statuses.map(status => {
+        return filteredData.filter(item => item.Status === status).length;
+    });
+
+    if (window.myChart) {
+        window.myChart.destroy();
+    }
+
+    window.myChart = new Chart(ctx, {
+        type: chartType,
+        data: {
+            labels: statuses,
+            datasets: [{
+                label: 'Notes Count by Status',
+                data: counts,
+                backgroundColor: [
+                    'rgba(75, 192, 192, 0.5)',
+                    'rgba(255, 99, 132, 0.5)',
+                    'rgba(54, 162, 235, 0.5)',
+                    'rgba(255, 206, 86, 0.5)',
+                ],
+                borderColor: [
+                    'rgba(75, 192, 192, 1)',
+                    'rgba(255, 99, 132, 1)',
+                    'rgba(54, 162, 235, 1)',
+                    'rgba(255, 206, 86, 1)',
+                ],
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Count',
+                    }
+                },
+            },
+        },
+    });
+}
+
+// Event listener for the Show Chart button
+document.getElementById("showChart").addEventListener("click", function() {
+    const chartType = document.getElementById('chartType').value;
+    document.getElementById('chartTitle').style.display = 'block';
+    document.getElementById('datePickers').style.display = 'flex';
+    document.getElementById('chartContainer').style.display = 'block';
+    createChart(chartType);
+});
+
+// Start date change event
+document.getElementById('startDate').addEventListener('change', function() {
+    const startDate = new Date(this.value);
+    const endDateInput = document.getElementById('endDate');
+
+    endDateInput.setAttribute('min', startDate.toISOString().split("T")[0]);
+    endDateInput.disabled = false;
+
+    createChart(document.getElementById('chartType').value);
+});
+
+// End date change event
+document.getElementById('endDate').addEventListener('change', function() {
+    createChart(document.getElementById('chartType').value);
+});
+
+// Close visualization
+document.getElementById("closeChart").addEventListener("click", function() {
+    document.getElementById('chartTitle').style.display = 'none';
+    document.getElementById('datePickers').style.display = 'none';
+    document.getElementById('chartContainer').style.display = 'none';
+});
+
+// Clear date filter
+document.getElementById("clearFilter").addEventListener("click", function() {
+    document.getElementById('startDate').value = '';
+    document.getElementById('endDate').value = '';
+    document.getElementById('endDate').disabled = true;
+
+    createChart(document.getElementById('chartType').value);
+});
+
+// Update table pagination size when dropdown changes
+document.getElementById("pageSize").addEventListener("change", function() {
+    const pageSize = this.value === 'all' ? sampleData.length : parseInt(this.value);
+    table.setPageSize(pageSize);
+});
+</script>
+
+</body>
+</html>
